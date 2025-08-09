@@ -388,6 +388,7 @@
      logical :: BulkGap_plane_calc ! Flag for Gap_plane calculation
      logical :: SlabBand_calc  ! Flag for 2D slab energy band calculation
      logical :: SlabBdG_calc   ! Flag for 2D slab BdG energy band calculation
+     logical :: SlabBand_spin_proj   ! NEW
      logical :: SlabBandWaveFunc_calc  ! Flag for 2D slab band wave function
      logical :: SlabBand_plane_calc  ! Flag for 2D slab energy band calculation
      logical :: WireBand_calc  ! Flag for 1D wire energy band calculation
@@ -473,6 +474,7 @@
                           SlabBand_calc, SlabBand_plane_calc, SlabBandWaveFunc_calc,&
                           SlabQPI_calc, SlabQPI_kpath_calc, SlabQPI_kplane_calc, &
                           SlabSS_calc, SlabArc_calc, SlabSpintexture_calc,&
+                          SlabBand_spin_proj,&  ! NEW
                           ChargeDensity_selected_bands_calc, &
                           ChargeDensity_selected_energies_calc, &
                           WireBand_calc, Wilsonloop_calc, &
