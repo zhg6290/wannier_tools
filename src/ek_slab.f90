@@ -33,6 +33,16 @@
      ! hamiltonian slab
      complex(Dp),allocatable ::CHamk(:,:)
 
+     ! ---------------- NEW ----------------
+     real(dp), allocatable :: &
+     Proj_Spin_Slab_x(:,:), Proj_Spin_Slab_x_mpi(:,:),&
+     Proj_Spin_Slab_y(:,:), Proj_Spin_Slab_y_mpi(:,:), &
+     Proj_Spin_Slab_z(:,:), Proj_Spin_Slab_z_mpi(:,:), &
+     norm, minsx, maxsx, minsy, maxsy, minsz, maxsz
+     complex(Dp),allocatable :: spin_x(:,:), spin_y(:,:), spin_z(:,:)
+     integer  :: num_wann_half, ib
+     ! ---------------- END ----------------
+
      lwork= 16*Nslab*Num_wann
      ierr = 0
 
@@ -47,6 +57,34 @@
      allocate(CHamk(nslab*Num_wann,nslab*Num_wann))
      allocate(work(lwork))
      allocate(rwork(lwork))
+
+     ! ---------------- NON ----------------
+     if (SlabBand_spin_proj) then
+         write(stdout,*) 'allocate spin_z matrix'
+         allocate(spin_x(Num_wann*Nslab, Num_wann*Nslab))
+         allocate(spin_y(Num_wann*Nslab, Num_wann*Nslab))
+         allocate(spin_z(Num_wann*Nslab, Num_wann*Nslab))
+         spin_x = 0.0d0; spin_y = 0.0d0; 
+         spin_z = 0.0d0
+         num_wann_half = Num_wann*Nslab / 2
+         do j = 1, num_wann_half
+            spin_x(j, num_wann_half+j)=1.0d0
+            spin_x(j+num_wann_half, j)=1.0d0
+            spin_y(j, num_wann_half+j)=-zi
+            spin_y(j+num_wann_half, j)=zi
+            spin_z(j, j) = 1.0d0        ! spin up
+            spin_z(j+num_wann_half, j+num_wann_half) = -1.0d0 ! spin down
+         enddo
+         allocate(Proj_Spin_Slab_x(Nslab*Num_wann, knv2))
+         allocate(Proj_Spin_Slab_x_mpi(Nslab*Num_wann, knv2))
+         allocate(Proj_Spin_Slab_y(Nslab*Num_wann, knv2))
+         allocate(Proj_Spin_Slab_y_mpi(Nslab*Num_wann, knv2))
+         allocate(Proj_Spin_Slab_z(Nslab*Num_wann, knv2))
+         allocate(Proj_Spin_Slab_z_mpi(Nslab*Num_wann, knv2))
+         Proj_Spin_Slab_x = 0.d0; Proj_Spin_Slab_y = 0.d0; 
+         Proj_Spin_Slab_z = 0.d0
+     endif
+     ! ---------------- END ----------------
  
      surf_l_weight= 0d0
      surf_l_weight_mpi= 0d0
@@ -116,6 +154,23 @@
           !     !+ abs(CHamk(Num_wann*(Nslab-1)- l, j))**2 ! last second slab
           !enddo ! l
         enddo ! j 
+
+        ! ------------ NEW ----------------
+        if (SlabBand_spin_proj) then
+            write(stdout,*) 'calculating spin-resolved band'
+            do ib = 1, Num_wann*Nslab
+               norm = sum(abs(CHamk(:,ib))**2)
+               ! CHamk(:, index)
+               Proj_Spin_Slab_x(ib, i) = &
+                  real(dot_product(CHamk(:, ib), matmul(spin_x, CHamk(:, ib))), dp) / norm
+               Proj_Spin_Slab_y(ib, i) = &
+                  real(dot_product(CHamk(:, ib), matmul(spin_y, CHamk(:, ib))), dp) / norm
+               Proj_Spin_Slab_z(ib, i) = &
+                  real(dot_product(CHamk(:, ib), matmul(spin_z, CHamk(:, ib))), dp) / norm
+           enddo
+        endif
+        ! ------------ END ----------------
+        
         call now(time_end)
      enddo ! i
 
@@ -126,10 +181,25 @@
                        mpi_dp,mpi_sum,mpi_cmw,ierr)
      call mpi_allreduce(surf_r_weight, surf_r_weight_mpi,size(surf_r_weight),&
                        mpi_dp,mpi_sum,mpi_cmw,ierr)
+
+     ! ------------ NEW ----------------
+     call mpi_allreduce(Proj_Spin_Slab_x, Proj_Spin_Slab_x_mpi,size(Proj_Spin_Slab_x),&
+                       mpi_dp,mpi_sum,mpi_cmw,ierr)
+     call mpi_allreduce(Proj_Spin_Slab_y, Proj_Spin_Slab_y_mpi,size(Proj_Spin_Slab_y),&
+                       mpi_dp,mpi_sum,mpi_cmw,ierr)
+     call mpi_allreduce(Proj_Spin_Slab_z, Proj_Spin_Slab_z_mpi,size(Proj_Spin_Slab_z),&
+                       mpi_dp,mpi_sum,mpi_cmw,ierr)
+     ! ------------ END ----------------
 #else
      ekslab_mpi= ekslab
      surf_l_weight_mpi= surf_l_weight
      surf_r_weight_mpi= surf_r_weight
+
+     ! ------------ NEW ----------------
+     Proj_Spin_Slab_x_mpi= Proj_Spin_Slab_x
+     Proj_Spin_Slab_y_mpi= Proj_Spin_Slab_y
+     Proj_Spin_Slab_z_mpi= Proj_Spin_Slab_z
+     ! ------------ END ----------------
 #endif
 
      
@@ -149,18 +219,34 @@
      maxweight=maxval(surf_r_weight_mpi+ surf_l_weight_mpi)
      surf_l_weight= surf_l_weight_mpi/ maxweight
      surf_r_weight= surf_r_weight_mpi/ maxweight
+
+     ! ---------- NEW ---------------
+     minsx = minval(Proj_Spin_Slab_x_mpi)
+     maxsx = maxval(Proj_Spin_Slab_x_mpi)
+     Proj_Spin_Slab_x= 2.0_dp * (Proj_Spin_Slab_x_mpi - minsx) / (maxsx - minsx) - 1.0_dp
+     minsy = minval(Proj_Spin_Slab_y_mpi)
+     maxsy = maxval(Proj_Spin_Slab_y_mpi)
+     Proj_Spin_Slab_y= 2.0_dp * (Proj_Spin_Slab_y_mpi - minsy) / (maxsy - minsy) - 1.0_dp
+     minsz = minval(Proj_Spin_Slab_z_mpi)
+     maxsz = maxval(Proj_Spin_Slab_z_mpi)
+     Proj_Spin_Slab_z= 2.0_dp * (Proj_Spin_Slab_z_mpi - minsz) / (maxsz - minsz) - 1.0_dp
+     ! ---------- END ---------------
      
      outfileindex= outfileindex+ 1
      if(cpuid==0)then
         open(unit=outfileindex, file='slabek.dat')
-        write(outfileindex, "('#', a10, a15, 5X, 2a16 )")'# k', ' E', 'BS weight', 'TS weight'
+        write(outfileindex, "('#', a10, a15, 5X, 2a16, 3a10 )")'# k', ' E', 'BS weight', 'TS weight', &
+            '<s_x>', '<s_y>', '<s_z>'
         do j=1, Num_wann*Nslab
            do i=1, knv2
              !write(outfileindex,'(3f15.7, i8)')k2len(i), ekslab(j,i), &
              !   (surf_weight(j, i))
-              write(outfileindex,'(2f15.7, 2f16.7)')k2len(i)*Angstrom2atomic, ekslab(j,i), &
+              write(outfileindex,'(2f15.7, 2f16.7, 3f16.7)')k2len(i)*Angstrom2atomic, ekslab(j,i), &
                  (surf_l_weight(j, i)), &
-                 (surf_r_weight(j, i))
+                 (surf_r_weight(j, i)), &
+                 (Proj_Spin_Slab_x(j,i)), &
+                 (Proj_Spin_Slab_y(j,i)), &
+                 (Proj_Spin_Slab_z(j,i))
            enddo
            write(outfileindex , *)''
         enddo
@@ -249,6 +335,18 @@
      deallocate(CHamk)
      deallocate(work)
      deallocate(rwork)
+
+     ! ---------- NEW ---------------
+     deallocate( Proj_Spin_Slab_x )
+     deallocate( Proj_Spin_Slab_x_mpi )
+     deallocate( Proj_Spin_Slab_y )
+     deallocate( Proj_Spin_Slab_y_mpi )
+     deallocate( spin_x )
+     deallocate( spin_y )
+     deallocate( Proj_Spin_Slab_z )
+     deallocate( Proj_Spin_Slab_z_mpi )
+     deallocate( spin_z )
+     ! ---------- END ---------------
    
   return
   end subroutine ek_slab
