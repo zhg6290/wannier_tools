@@ -112,6 +112,7 @@ subroutine readinput
    SlabQPI_kplane_calc   = .FALSE.
    SlabSpintexture_calc  = .FALSE.
    BulkSpintexture_calc  = .FALSE.
+   SlabBand_spin_proj    = .FALSE.  ! NEW
    wanniercenter_calc    = .FALSE.
    Wilsonloop_calc       = .FALSE.
    Z2_3D_calc            = .FALSE.
